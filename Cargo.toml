@@ -1,0 +1,17 @@
+[package]
+name = "record-set-go"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1"
+axum = "0.8"
+clap = { version = "4.5.41", features = ["derive"] }
+gix = { version = "0.73", default-features = false, features = ["blocking-network-client", "blocking-http-transport-reqwest-rust-tls", "parallel"] }
+hickory-client = "=0.26.0-alpha.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1.46.1", features = ["macros", "rt-multi-thread"] }
+toml = "0.9"
+tracing = "0.1"
+tracing-subscriber = "0.3"
