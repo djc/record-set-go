@@ -2,14 +2,16 @@ use std::{
     fs, io,
     net::SocketAddr,
     path::PathBuf,
+    str::FromStr,
     sync::{Arc, atomic::AtomicBool},
 };
 
 use anyhow::Context;
 use axum::{
     Router,
-    extract::{Path, State},
+    extract::{Json, Path, State},
     http::StatusCode,
+    response::IntoResponse,
     routing::get,
 };
 use clap::Parser;
@@ -20,8 +22,21 @@ use gix::{
     objs::Kind,
     remote::{Direction, ref_map},
 };
+use hickory_client::{
+    client::{Client, ClientHandle},
+    proto::{
+        rr::Name,
+        rr::{DNSClass, RecordType},
+        runtime::TokioRuntimeProvider,
+        tcp::TcpClientStream,
+    },
+};
+use hickory_resolver::{Resolver, name_server::TokioConnectionProvider};
 use serde::{Deserialize, Serialize};
-use tokio::net::TcpListener;
+use tokio::{
+    net::{TcpListener, lookup_host},
+    sync::Mutex,
+};
 use tracing::{debug, info, warn};
 
 #[tokio::main]
@@ -38,12 +53,35 @@ async fn main() -> anyhow::Result<()> {
     let config = toml::from_str::<Config>(&config).context("failed to parse config file")?;
     debug!(?config, "parsed config");
 
+    let addr = lookup_host((config.dns.server.as_str(), 53))
+        .await
+        .context("failed to resolve DNS server address")?
+        .next()
+        .ok_or(anyhow::Error::msg(format!(
+            "no address found for DNS server {:?}",
+            &config.dns.server
+        )))?;
+    let (stream, sender) = TcpClientStream::new(addr, None, None, TokioRuntimeProvider::new());
+    let client = Client::new(stream, sender, None);
+    let (client, bg) = client
+        .await
+        .context("failed to establish DNS client connection")?;
+    tokio::spawn(bg);
+
     let state = Arc::new(App {
+        provider: config.provider,
+        client: Mutex::new(client),
+        resolver: Resolver::<TokioConnectionProvider>::builder(TokioConnectionProvider::default())?
+            .build(),
         templates: Templates::new(config.templates).context("failed to initialize templates")?,
     });
 
     let app = Router::new()
-        .route("/{service}", get(service))
+        .route("/v2/{domain}/settings", get(settings))
+        .route(
+            "/v2/domainTemplates/providers/{provider}/services/{service}",
+            get(supported),
+        )
         .with_state(state);
 
     let listener = TcpListener::bind(config.http.listen).await.unwrap();
@@ -51,28 +89,60 @@ async fn main() -> anyhow::Result<()> {
     Ok(axum::serve(listener, app).await?)
 }
 
-async fn service(Path(service): Path<String>, State(app): State<Arc<App>>) -> (StatusCode, String) {
-    debug!(service = %service, "received request for service");
-    let Some(template) = app.templates.get(&service) else {
-        return (
-            StatusCode::NOT_FOUND,
-            format!("no template found for {service:?}"),
-        );
-    };
-
-    match serde_json::to_string_pretty(&template) {
-        Ok(json) => (StatusCode::OK, json),
-        Err(error) => {
-            warn!(%error, %service, "failed to serialize template");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("failed to serialize template: {error}"),
-            )
-        }
+async fn supported(
+    Path(supported): Path<Supported>,
+    State(app): State<Arc<App>>,
+) -> ApiResponse<TemplateVersion> {
+    debug!(provider = %supported.provider, service = %supported.service, "received request for service");
+    match app.templates.get(&supported.provider, &supported.service) {
+        Ok(Some(template)) => ApiResponse::Ok(TemplateVersion {
+            version: template.version,
+        }),
+        Ok(None) => ApiResponse::NotFound,
+        Err(()) => ApiResponse::Internal,
     }
 }
 
+#[derive(Debug, Deserialize)]
+struct Supported {
+    provider: String,
+    service: String,
+}
+
+async fn settings(
+    Path(domain): Path<String>,
+    State(app): State<Arc<App>>,
+) -> ApiResponse<Settings> {
+    let name = match Name::from_str(&domain) {
+        Ok(name) => name,
+        Err(error) => {
+            warn!(%error, "failed to parse domain name");
+            return ApiResponse::BadRequest(ApiError {
+                message: format!("invalid domain name: {error}"),
+            });
+        }
+    };
+
+    let result = app
+        .client
+        .lock()
+        .await
+        .query(name, DNSClass::IN, RecordType::NS)
+        .await;
+
+    ApiResponse::Ok(Settings {
+        provider_id: app.provider.id.clone(),
+        provider_name: app.provider.name.clone(),
+        provider_display_name: Some(app.provider.display_name.clone()),
+        url_sync_ux: app.provider.sync_url.clone(),
+        url_api: app.provider.api_url.clone(),
+    })
+}
+
 struct App {
+    provider: ProviderConfig,
+    client: Mutex<Client>,
+    resolver: Resolver<TokioConnectionProvider>,
     templates: Templates,
 }
 
@@ -119,17 +189,21 @@ impl Templates {
         })
     }
 
-    fn get(&self, path: &str) -> Option<Template> {
+    fn get(&self, provider: &str, service: &str) -> Result<Option<Template>, ()> {
         let local = self.repo.to_thread_local();
         let tree = match local.head_tree() {
             Ok(tree) => tree,
             Err(error) => {
                 warn!(%error, "failed to get head tree");
-                return None;
+                return Err(());
             }
         };
 
-        let entry = tree.find_entry(path)?;
+        let path = format!("{provider}.{service}.json");
+        let Some(entry) = tree.find_entry(&*path) else {
+            return Ok(None);
+        };
+
         let object = match entry.object() {
             Ok(
                 object @ Object {
@@ -138,22 +212,35 @@ impl Templates {
             ) => object,
             Ok(Object { kind, .. }) => {
                 warn!(kind = ?kind, path = %path, "object is not a blob");
-                return None;
+                return Err(());
             }
             Err(error) => {
                 warn!(%error, path = %path, "failed to find object for path");
-                return None;
+                return Err(());
             }
         };
 
         match serde_json::from_slice(&object.data) {
-            Ok(template) => Some(template),
+            Ok(template) => Ok(Some(template)),
             Err(error) => {
                 warn!(%error, path = %path, "failed to deserialize template");
-                None
+                Err(())
             }
         }
     }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Settings {
+    provider_id: String,
+    provider_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    provider_display_name: Option<String>,
+    #[serde(rename = "urlSyncUX")]
+    url_sync_ux: String,
+    #[serde(rename = "urlAPI")]
+    url_api: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -164,11 +251,17 @@ struct Template {
     service_id: String,
     service_name: String,
     version: usize,
-    sync_pub_key_domain: String,
+    sync_pub_key_domain: Option<String>,
     description: String,
     variable_description: String,
-    host_required: bool,
+    host_required: Option<bool>,
     records: Vec<Record>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TemplateVersion {
+    version: usize,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -190,6 +283,8 @@ struct Options {
 struct Config {
     http: HttpConfig,
     templates: TemplateConfig,
+    dns: DnsConfig,
+    provider: ProviderConfig,
 }
 
 #[derive(Debug, Deserialize)]
@@ -201,4 +296,55 @@ struct TemplateConfig {
 #[derive(Debug, Deserialize)]
 struct HttpConfig {
     listen: SocketAddr,
+}
+
+#[derive(Debug, Deserialize)]
+struct DnsConfig {
+    server: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+struct ProviderConfig {
+    id: String,
+    name: String,
+    display_name: String,
+    sync_url: String,
+    api_url: String,
+}
+
+#[derive(Debug, Serialize)]
+enum ApiResponse<T> {
+    Ok(T),
+    BadRequest(ApiError),
+    Internal,
+    NotFound,
+}
+
+impl<T: Serialize> IntoResponse for ApiResponse<T> {
+    fn into_response(self) -> axum::response::Response {
+        match self {
+            Self::Ok(data) => (StatusCode::OK, Json(data)).into_response(),
+            Self::BadRequest(error) => (StatusCode::BAD_REQUEST, Json(error)).into_response(),
+            Self::Internal => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiError {
+                    message: "request processing failed".to_owned(),
+                }),
+            )
+                .into_response(),
+            Self::NotFound => (
+                StatusCode::NOT_FOUND,
+                Json(ApiError {
+                    message: "resource not found".to_owned(),
+                }),
+            )
+                .into_response(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct ApiError {
+    message: String,
 }
