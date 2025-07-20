@@ -53,28 +53,12 @@ async fn main() -> anyhow::Result<()> {
     let config = toml::from_str::<Config>(&config).context("failed to parse config file")?;
     debug!(?config, "parsed config");
 
-    let addr = lookup_host((config.dns.server.as_str(), 53))
-        .await
-        .context("failed to resolve DNS server address")?
-        .next()
-        .ok_or(anyhow::Error::msg(format!(
-            "no address found for DNS server {:?}",
-            &config.dns.server
-        )))?;
-    let (stream, sender) = TcpClientStream::new(addr, None, None, TokioRuntimeProvider::new());
-    let client = Client::new(stream, sender, None);
-    let (client, bg) = client
-        .await
-        .context("failed to establish DNS client connection")?;
-    tokio::spawn(bg);
-
-    let state = Arc::new(App {
-        provider: config.provider,
-        client: Mutex::new(client),
-        resolver: Resolver::<TokioConnectionProvider>::builder(TokioConnectionProvider::default())?
-            .build(),
-        templates: Templates::new(config.templates).context("failed to initialize templates")?,
-    });
+    let addr = config.http.listen;
+    let state = Arc::new(
+        App::new(config)
+            .await
+            .context("failed to initialize application")?,
+    );
 
     let app = Router::new()
         .route("/v2/{domain}/settings", get(settings))
@@ -84,8 +68,10 @@ async fn main() -> anyhow::Result<()> {
         )
         .with_state(state);
 
-    let listener = TcpListener::bind(config.http.listen).await.unwrap();
-    info!(addr = %config.http.listen, "HTTP interface listening");
+    let listener = TcpListener::bind(addr)
+        .await
+        .context("failed to bind TCP listener")?;
+    info!(%addr, "HTTP interface listening");
     Ok(axum::serve(listener, app).await?)
 }
 
@@ -144,6 +130,36 @@ struct App {
     client: Mutex<Client>,
     resolver: Resolver<TokioConnectionProvider>,
     templates: Templates,
+}
+
+impl App {
+    async fn new(config: Config) -> anyhow::Result<Self> {
+        let addr = lookup_host((config.dns.server.as_str(), 53))
+            .await
+            .context("failed to resolve DNS server address")?
+            .next()
+            .ok_or(anyhow::Error::msg(format!(
+                "no address found for DNS server {:?}",
+                &config.dns.server
+            )))?;
+        let (stream, sender) = TcpClientStream::new(addr, None, None, TokioRuntimeProvider::new());
+        let client = Client::new(stream, sender, None);
+        let (client, bg) = client
+            .await
+            .context("failed to establish DNS client connection")?;
+        tokio::spawn(bg);
+
+        Ok(Self {
+            provider: config.provider,
+            client: Mutex::new(client),
+            resolver: Resolver::<TokioConnectionProvider>::builder(
+                TokioConnectionProvider::default(),
+            )?
+            .build(),
+            templates: Templates::new(config.templates)
+                .context("failed to initialize templates")?,
+        })
+    }
 }
 
 struct Templates {
