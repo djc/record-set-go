@@ -30,7 +30,6 @@ use hickory_client::{
         tcp::TcpClientStream,
     },
 };
-use hickory_resolver::{Resolver, name_server::TokioConnectionProvider};
 use serde::{Deserialize, Serialize};
 use tokio::{net::lookup_host, sync::Mutex};
 use tracing::{debug, info, warn};
@@ -102,7 +101,6 @@ async fn settings(
 pub struct App {
     provider: ProviderConfig,
     client: Mutex<Client>,
-    resolver: Resolver<TokioConnectionProvider>,
     templates: Templates,
 }
 
@@ -126,10 +124,6 @@ impl App {
         Ok(Self {
             provider: config.provider,
             client: Mutex::new(client),
-            resolver: Resolver::<TokioConnectionProvider>::builder(
-                TokioConnectionProvider::default(),
-            )?
-            .build(),
             templates: Templates::new(config.templates)
                 .context("failed to initialize templates")?,
         })
