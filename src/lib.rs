@@ -35,11 +35,11 @@ use tokio::net::lookup_host;
 use tracing::{debug, info, warn};
 
 async fn supported(
-    Path(supported): Path<Supported>,
+    Path(service): Path<ServiceKey>,
     State(app): State<Arc<App>>,
 ) -> ApiResponse<TemplateVersion> {
-    debug!(provider = %supported.provider, service = %supported.service, "received request for service");
-    match app.templates.get(&supported.provider, &supported.service) {
+    debug!(provider = %service.provider, service = %service.service, "received request for service");
+    match app.templates.get(&service.provider, &service.service) {
         Ok(Some(template)) => ApiResponse::Ok(TemplateVersion {
             version: template.version,
         }),
@@ -49,7 +49,7 @@ async fn supported(
 }
 
 #[derive(Debug, Deserialize)]
-struct Supported {
+struct ServiceKey {
     provider: String,
     service: String,
 }
