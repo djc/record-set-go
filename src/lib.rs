@@ -1,5 +1,6 @@
 use std::{
-    io,
+    collections::HashMap,
+    fs, io,
     net::SocketAddr,
     path::PathBuf,
     str::FromStr,
@@ -9,9 +10,9 @@ use std::{
 use anyhow::Context;
 use axum::{
     Router,
-    extract::{Json, Path, State},
-    http::StatusCode,
-    response::IntoResponse,
+    extract::{Json, Path, Query, RawQuery, State},
+    http::{StatusCode, Uri},
+    response::{Html, IntoResponse},
     routing::get,
 };
 use gix::{
@@ -33,6 +34,117 @@ use hickory_client::{
 use serde::{Deserialize, Serialize};
 use tokio::net::lookup_host;
 use tracing::{debug, info, warn};
+
+async fn apply(
+    Path(service): Path<ServiceKey>,
+    RawQuery(query): RawQuery,
+    State(app): State<Arc<App>>,
+) -> ApiResponse<Template> {
+    debug!(provider = %service.provider, service = %service.service, "received request to apply template");
+    let template = match app.templates.get(&service.provider, &service.service) {
+        Ok(Some(template)) => template,
+        Ok(None) => {
+            warn!(provider = %service.provider, service = %service.service, "template not found");
+            return ApiResponse::NotFound;
+        }
+        Err(()) => {
+            warn!(provider = %service.provider, service = %service.service, "failed to retrieve template");
+            return ApiResponse::Internal;
+        }
+    };
+
+    let Some(query_str) = query else {
+        warn!("missing query parameters");
+        return ApiResponse::BadRequest(ApiError {
+            message: "missing query parameters".to_owned(),
+        });
+    };
+
+    // This should never fail, but we handle it gracefully just in case
+    let Ok(uri) = Uri::from_str(&format!("/?{query_str}")) else {
+        warn!("failed to parse URI from query");
+        return ApiResponse::BadRequest(ApiError {
+            message: "failed to parse URI from query".to_owned(),
+        });
+    };
+
+    let Ok(Query(mut query)) = Query::<HashMap<String, String>>::try_from_uri(&uri) else {
+        warn!("failed to parse query parameters");
+        return ApiResponse::BadRequest(ApiError {
+            message: "failed to parse query parameters".to_owned(),
+        });
+    };
+
+    let properties = match Properties::from_query(&mut query) {
+        Ok(props) => props,
+        Err(error) => {
+            warn!(%error, "failed to parse properties from query");
+            return ApiResponse::BadRequest(ApiError {
+                message: error.to_owned(),
+            });
+        }
+    };
+
+    let preview = Preview {
+        properties: &properties,
+        template: &template,
+    };
+
+    let html = match app.html.get_template("apply.html") {
+        Ok(html) => html,
+        Err(error) => {
+            warn!(%error, "failed to get HTML template");
+            return ApiResponse::Internal;
+        }
+    };
+
+    match html.render(&preview) {
+        Ok(rendered) => ApiResponse::Html(rendered),
+        Err(error) => {
+            warn!(%error, "failed to render HTML template");
+            ApiResponse::Internal
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct Preview<'a> {
+    properties: &'a Properties,
+    template: &'a Template,
+}
+
+#[derive(Serialize)]
+struct Properties {
+    domain: String,
+    host: Option<String>,
+    redirect_uri: Option<String>,
+    state: Option<String>,
+    provider_name: Option<String>,
+    service_name: Option<String>,
+    group_id: Option<String>,
+    // Signature and key
+    sig: Option<(String, String)>,
+}
+
+impl Properties {
+    fn from_query(query: &mut HashMap<String, String>) -> Result<Self, &'static str> {
+        Ok(Self {
+            domain: query.remove("domain").ok_or("missing domain field")?,
+            host: query.remove("host"),
+            redirect_uri: query.remove("redirect_uri"),
+            state: query.remove("state"),
+            provider_name: query.remove("providerName"),
+            service_name: query.remove("serviceName"),
+            group_id: query.remove("groupId"),
+            sig: match (query.remove("sig"), query.remove("key")) {
+                (Some(sig), Some(key)) => Some((sig, key)),
+                (Some(_), None) => return Err("missing key for provided sig"),
+                (None, Some(_)) => return Err("missing sig for provided key"),
+                (None, None) => None,
+            },
+        })
+    }
+}
 
 async fn supported(
     Path(service): Path<ServiceKey>,
@@ -102,16 +214,42 @@ async fn settings(
 pub struct App {
     provider: ProviderConfig,
     dns: DnsServer,
+    html: minijinja::Environment<'static>,
     templates: Templates,
 }
 
 impl App {
     pub async fn new(config: Config) -> anyhow::Result<Self> {
+        let mut html = minijinja::Environment::new();
+        let files =
+            fs::read_dir(&config.http.html).context("failed to read HTML templates directory")?;
+
+        for file in files {
+            let file = file.context("failed to read HTML template directory entry")?;
+            let path = file.path();
+            if !path.is_file() {
+                continue;
+            }
+
+            let contents = fs::read_to_string(&path).context(format!(
+                "failed to read HTML template file {}",
+                path.display()
+            ))?;
+
+            let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+
+            html.add_template_owned(name.to_owned(), contents)
+                .context(format!("failed to register HTML template {name}"))?;
+        }
+
         Ok(Self {
             provider: config.provider,
             dns: DnsServer::new(config.dns)
                 .await
                 .context("failed to create DNS server")?,
+            html,
             templates: Templates::new(config.templates)
                 .context("failed to initialize templates")?,
         })
@@ -123,6 +261,10 @@ impl App {
             .route(
                 "/v2/domainTemplates/providers/{provider}/services/{service}",
                 get(supported),
+            )
+            .route(
+                "/v2/domainTemplates/providers/{provider}/services/{service}/apply",
+                get(apply),
             )
             .with_state(Arc::new(self))
     }
@@ -302,6 +444,7 @@ struct TemplateConfig {
 #[derive(Debug, Deserialize)]
 pub struct HttpConfig {
     pub listen: SocketAddr,
+    html: PathBuf,
 }
 
 #[derive(Debug, Deserialize)]
@@ -321,6 +464,7 @@ struct ProviderConfig {
 
 #[derive(Debug, Serialize)]
 enum ApiResponse<T> {
+    Html(String),
     Json(T),
     BadRequest(ApiError),
     Internal,
@@ -330,6 +474,7 @@ enum ApiResponse<T> {
 impl<T: Serialize> IntoResponse for ApiResponse<T> {
     fn into_response(self) -> axum::response::Response {
         match self {
+            Self::Html(html) => (StatusCode::OK, Html(html)).into_response(),
             Self::Json(data) => (StatusCode::OK, Json(data)).into_response(),
             Self::BadRequest(error) => (StatusCode::BAD_REQUEST, Json(error)).into_response(),
             Self::Internal => (
