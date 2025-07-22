@@ -281,7 +281,7 @@ struct TemplateVersion {
 struct Record {
     r#type: String,
     host: String,
-    points_to: String,
+    points_to: Option<String>,
     ttl: u32,
 }
 
