@@ -59,6 +59,7 @@ async fn settings(
     Path(domain): Path<String>,
     State(app): State<Arc<App>>,
 ) -> ApiResponse<Settings> {
+    debug!(%domain, "received request for settings");
     let name = match Name::from_str(&domain) {
         Ok(name) => name,
         Err(error) => {
@@ -73,8 +74,21 @@ async fn settings(
         .client
         .lock()
         .await
-        .query(name, DNSClass::IN, RecordType::NS)
+        .query(name, DNSClass::IN, RecordType::SOA)
         .await;
+
+    let message = match result {
+        Ok(message) => message,
+        Err(error) => {
+            warn!(%domain, ?error, "failed to query DNS for domain settings");
+            return ApiResponse::Internal;
+        }
+    };
+
+    if message.answers().is_empty() {
+        warn!(%domain, "no NS records found for domain");
+        return ApiResponse::NotFound;
+    }
 
     ApiResponse::Ok(Settings {
         provider_id: app.provider.id.clone(),
