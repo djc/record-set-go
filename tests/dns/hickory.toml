@@ -1,0 +1,20 @@
+[[zones]]
+zone = "example.com"
+zone_type = "Primary"
+axfr_policy = "AllowSigned"
+
+[zones.stores]
+type = "sqlite"
+zone_path = "example.com.zone"
+journal_path = "example.com.journal"
+allow_update = true
+
+[[zones.keys]]
+key_path = "rsa-key.pk8"
+algorithm = "RSASHA256"
+purpose = "ZoneSigning"
+
+[[zones.keys]]
+key_path = "rsa-key.pk8"
+algorithm = "RSASHA512"
+purpose = "ZoneUpdateAuth"
