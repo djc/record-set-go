@@ -31,7 +31,7 @@ use hickory_client::{
     },
 };
 use serde::{Deserialize, Serialize};
-use tokio::{net::lookup_host, sync::Mutex};
+use tokio::net::lookup_host;
 use tracing::{debug, info, warn};
 
 async fn supported(
@@ -69,14 +69,15 @@ async fn settings(
         }
     };
 
-    let result = app
-        .client
-        .lock()
-        .await
-        .query(name, DNSClass::IN, RecordType::SOA)
-        .await;
+    let mut client = match app.dns.connect().await {
+        Ok(client) => client,
+        Err(error) => {
+            warn!(%error, "failed to connect to DNS server");
+            return ApiResponse::Internal;
+        }
+    };
 
-    let message = match result {
+    let message = match client.query(name, DNSClass::IN, RecordType::SOA).await {
         Ok(message) => message,
         Err(error) => {
             warn!(%domain, ?error, "failed to query DNS for domain settings");
@@ -100,30 +101,17 @@ async fn settings(
 
 pub struct App {
     provider: ProviderConfig,
-    client: Mutex<Client>,
+    dns: DnsServer,
     templates: Templates,
 }
 
 impl App {
     pub async fn new(config: Config) -> anyhow::Result<Self> {
-        let addr = lookup_host((config.dns.server.as_str(), 53))
-            .await
-            .context("failed to resolve DNS server address")?
-            .next()
-            .ok_or(anyhow::Error::msg(format!(
-                "no address found for DNS server {:?}",
-                &config.dns.server
-            )))?;
-        let (stream, sender) = TcpClientStream::new(addr, None, None, TokioRuntimeProvider::new());
-        let client = Client::new(stream, sender, None);
-        let (client, bg) = client
-            .await
-            .context("failed to establish DNS client connection")?;
-        tokio::spawn(bg);
-
         Ok(Self {
             provider: config.provider,
-            client: Mutex::new(client),
+            dns: DnsServer::new(config.dns)
+                .await
+                .context("failed to create DNS server")?,
             templates: Templates::new(config.templates)
                 .context("failed to initialize templates")?,
         })
@@ -137,6 +125,36 @@ impl App {
                 get(supported),
             )
             .with_state(Arc::new(self))
+    }
+}
+
+struct DnsServer {
+    addr: SocketAddr,
+}
+
+impl DnsServer {
+    async fn new(config: DnsConfig) -> anyhow::Result<Self> {
+        Ok(Self {
+            addr: lookup_host((config.server.as_str(), 53))
+                .await
+                .context("failed to resolve DNS server address")?
+                .next()
+                .ok_or(anyhow::Error::msg(format!(
+                    "no address found for DNS server {:?}",
+                    &config.server
+                )))?,
+        })
+    }
+
+    pub async fn connect(&self) -> anyhow::Result<Client> {
+        let (stream, sender) =
+            TcpClientStream::new(self.addr, None, None, TokioRuntimeProvider::new());
+        let client = Client::new(stream, sender, None);
+        let (client, bg) = client
+            .await
+            .context("failed to establish DNS client connection")?;
+        tokio::spawn(bg);
+        Ok(client)
     }
 }
 
