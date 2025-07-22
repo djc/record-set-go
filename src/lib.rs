@@ -40,7 +40,7 @@ async fn supported(
 ) -> ApiResponse<TemplateVersion> {
     debug!(provider = %service.provider, service = %service.service, "received request for service");
     match app.templates.get(&service.provider, &service.service) {
-        Ok(Some(template)) => ApiResponse::Ok(TemplateVersion {
+        Ok(Some(template)) => ApiResponse::Json(TemplateVersion {
             version: template.version,
         }),
         Ok(None) => ApiResponse::NotFound,
@@ -90,7 +90,7 @@ async fn settings(
         return ApiResponse::NotFound;
     }
 
-    ApiResponse::Ok(Settings {
+    ApiResponse::Json(Settings {
         provider_id: app.provider.id.clone(),
         provider_name: app.provider.name.clone(),
         provider_display_name: Some(app.provider.display_name.clone()),
@@ -321,7 +321,7 @@ struct ProviderConfig {
 
 #[derive(Debug, Serialize)]
 enum ApiResponse<T> {
-    Ok(T),
+    Json(T),
     BadRequest(ApiError),
     Internal,
     NotFound,
@@ -330,7 +330,7 @@ enum ApiResponse<T> {
 impl<T: Serialize> IntoResponse for ApiResponse<T> {
     fn into_response(self) -> axum::response::Response {
         match self {
-            Self::Ok(data) => (StatusCode::OK, Json(data)).into_response(),
+            Self::Json(data) => (StatusCode::OK, Json(data)).into_response(),
             Self::BadRequest(error) => (StatusCode::BAD_REQUEST, Json(error)).into_response(),
             Self::Internal => (
                 StatusCode::INTERNAL_SERVER_ERROR,
