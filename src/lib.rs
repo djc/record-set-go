@@ -113,7 +113,8 @@ struct Preview<'a> {
     template: &'a Template,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct Properties {
     domain: String,
     host: Option<String>,

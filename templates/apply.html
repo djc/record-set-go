@@ -3,10 +3,53 @@
   <head>
     <meta charset="utf-8">
     <title>Confirm records</title>
+    <style>
+
+      body {
+        text-align: center;
+        font-family: -apple-system, ".SFNSText-Regular", "San Francisco", "Roboto", "Segoe UI", "Helvetica Neue", "Lucida Grande", sans-serif;
+        text-rendering: optimizelegibility;
+        font-size: 1.8em;
+        background: #fafafa;
+        color: #333;
+        padding: 2em;
+      }
+
+      div#wrap {
+        overflow: auto;
+        margin: 0px auto;
+        text-align: center;
+        width: 850px;
+      }
+
+      h1 {
+        text-align: center;
+        font-size: 1.8em;
+        font-weight: bold;
+      }
+
+      p {
+        margin: 30px;
+      }
+
+      span.provider {
+        font-weight: bold;
+      }
+
+      span.service {
+        font-weight: bold;
+      }
+
+    </style>
   </head>
   <body>
-    <div class="container">
-      <h1>Add records</h1>
+    <div id="wrap">
+      <h1>Confirm records for {{ properties.domain }}</h1>
+      <p>
+        <span class="provider">{{ properties.providerName|default(template.providerName, true) }}</span>
+        wants to add the following records for its
+        <span class="service">{{ properties.serviceName|default(template.serviceName, true) }}</span>:
+      </p>
     </div>
   </body>
 </html>
