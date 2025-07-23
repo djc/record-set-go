@@ -405,18 +405,28 @@ struct Template {
     provider_name: String,
     service_id: String,
     service_name: String,
-    version: usize,
+    logo_url: Option<String>,
+    version: Option<usize>,
+    description: Option<String>,
+    #[serde(default)]
+    sync_block: bool,
+    #[serde(default)]
+    shared_provider_name: bool,
     sync_pub_key_domain: Option<String>,
-    description: String,
-    variable_description: String,
-    host_required: Option<bool>,
+    sync_redirect_domain: Option<String>,
+    #[serde(default)]
+    multi_instance: bool,
+    #[serde(default)]
+    warn_phishing: bool,
+    #[serde(default)]
+    host_required: bool,
     records: Vec<Record>,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct TemplateVersion {
-    version: usize,
+    version: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
