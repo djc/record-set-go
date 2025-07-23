@@ -1431,6 +1431,7 @@ dependencies = [
  "once_cell",
  "radix_trie",
  "rand",
+ "serde",
  "thiserror",
  "tokio",
  "tracing",
@@ -1454,6 +1455,7 @@ dependencies = [
  "once_cell",
  "rand",
  "ring",
+ "serde",
  "thiserror",
  "tinyvec",
  "tokio",
@@ -2884,6 +2886,7 @@ dependencies = [
  "form_urlencoded",
  "idna",
  "percent-encoding",
+ "serde",
 ]
 
 [[package]]

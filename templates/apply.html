@@ -40,6 +40,18 @@
         font-weight: bold;
       }
 
+      table#records {
+        width: 80%;
+        margin: 0 auto;
+        border-collapse: collapse;
+      }
+
+      table#records td, table#records th {
+        padding: 4px 8px 6px 10px;
+        border: 1px solid #ddd;
+        text-align: left;
+      }
+
     </style>
   </head>
   <body>
@@ -53,6 +65,26 @@
         wants to add the following records for its
         <span class="service">{{ properties.serviceName|default(template.serviceName, true) }}</span>:
       </p>
+      <table id="records">
+        <thead>
+          <tr>
+            <th>Type</th>
+            <th>Name</th>
+            <th>Value</th>
+            <th>TTL</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for record in records %}
+            <tr>
+              <td>{{ record.type }}</td>
+              <td>{{ record.fqdn }}</td>
+              <td>{{ record.display }}</td>
+              <td>{{ record.ttl }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
   </body>
 </html>

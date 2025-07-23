@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     fs, io,
-    net::SocketAddr,
+    net::{Ipv4Addr, SocketAddr},
     path::PathBuf,
     str::FromStr,
     sync::{Arc, atomic::AtomicBool},
@@ -25,8 +25,7 @@ use gix::{
 use hickory_client::{
     client::{Client, ClientHandle},
     proto::{
-        rr::Name,
-        rr::{DNSClass, RecordType},
+        rr::{DNSClass, Name, RData, RecordType, rdata::TXT},
         runtime::TokioRuntimeProvider,
         tcp::TcpClientStream,
     },
@@ -85,9 +84,39 @@ async fn apply(
         }
     };
 
+    let fqdn = match &properties.host {
+        Some(host) => format!("{host}.{}", properties.domain),
+        None => properties.domain.clone(),
+    };
+
+    query.insert("fqdn".to_owned(), fqdn);
+    query.insert("domain".to_owned(), properties.domain.clone());
+    if let Some(host) = &properties.host {
+        query.insert("host".to_owned(), host.clone());
+    }
+
+    let mut records = Vec::with_capacity(template.records.len());
+    for record in &template.records {
+        let result = match record.r#type {
+            DcRecordType::A => RecordPreview::a(&record, &query),
+            DcRecordType::Txt => RecordPreview::txt(&record, &query),
+            _ => continue,
+        };
+
+        match result {
+            Ok(record) => records.push(record),
+            Err(error) => {
+                return ApiResponse::BadRequest(ApiError {
+                    message: error.to_owned(),
+                });
+            }
+        }
+    }
+
     let preview = Preview {
         properties: &properties,
         template: &template,
+        records: &records,
     };
 
     let html = match app.html.get_template("apply.html") {
@@ -107,10 +136,134 @@ async fn apply(
     }
 }
 
+struct ValueTemplate<'a>(Vec<Node<'a>>);
+
+impl<'a> ValueTemplate<'a> {
+    fn from_str(s: &'a str) -> Self {
+        use ParseState::*;
+        let mut state = Literal { start: 0 };
+        let mut nodes = Vec::new();
+        for (i, c) in s.char_indices() {
+            state = match (state, c) {
+                (Literal { start }, '%') => {
+                    if i > start {
+                        nodes.push(Node::Literal(&s[start..i]));
+                    }
+                    Variable { start: i + 1 }
+                }
+                (Literal { .. }, '@') => {
+                    nodes.push(Node::Variable("fqdn"));
+                    Literal { start: i + 1 }
+                }
+                (Variable { start }, '%') => {
+                    nodes.push(Node::Variable(&s[start..i]));
+                    Literal { start: i + 1 }
+                }
+                (state, _) => state,
+            };
+        }
+
+        Self(nodes)
+    }
+
+    fn render(&self, query: &HashMap<String, String>) -> Result<String, &'static str> {
+        let mut result = String::new();
+        for node in &self.0 {
+            match node {
+                Node::Literal(text) => result.push_str(text),
+                Node::Variable(var) => match query.get(*var) {
+                    Some(value) => result.push_str(value),
+                    None => {
+                        warn!(%var, "missing variable in query");
+                        return Err("missing variable in query");
+                    }
+                },
+            }
+        }
+
+        Ok(result)
+    }
+}
+
+#[derive(Debug)]
+enum Node<'a> {
+    Literal(&'a str),
+    Variable(&'a str),
+}
+
+#[derive(Debug)]
+enum ParseState {
+    Literal { start: usize },
+    Variable { start: usize },
+}
+
 #[derive(Serialize)]
 struct Preview<'a> {
     properties: &'a Properties,
     template: &'a Template,
+    records: &'a [RecordPreview],
+}
+
+#[derive(Debug, Serialize)]
+struct RecordPreview {
+    r#type: RecordType,
+    fqdn: Name,
+    data: RData,
+    display: String,
+    ttl: u32,
+}
+
+impl RecordPreview {
+    fn a(input: &Record, query: &HashMap<String, String>) -> Result<Self, &'static str> {
+        let host_template = ValueTemplate::from_str(&input.host);
+        let name = host_template.render(&query)?;
+        let fqdn = Name::from_str(&name).map_err(|error| {
+            warn!(%error, "failed to parse FQDN from host template");
+            "invalid record host"
+        })?;
+
+        let Some(points_to) = input.points_to.as_deref() else {
+            return Err("A record missing pointsTo field");
+        };
+
+        let value_template = ValueTemplate::from_str(&points_to);
+        let points_to = value_template.render(&query)?;
+        let addr = Ipv4Addr::from_str(&points_to).map_err(|error| {
+            warn!(%error, "failed to parse A record address");
+            "invalid A record address"
+        })?;
+
+        Ok(Self {
+            r#type: RecordType::A,
+            fqdn,
+            data: RData::A(addr.into()),
+            display: format!("{addr}"),
+            ttl: input.ttl,
+        })
+    }
+
+    fn txt(input: &Record, query: &HashMap<String, String>) -> Result<Self, &'static str> {
+        let host_template = ValueTemplate::from_str(&input.host);
+        let name = host_template.render(query)?;
+        let fqdn = Name::from_str(&name).map_err(|error| {
+            warn!(%error, "failed to parse FQDN from host template");
+            "invalid record host"
+        })?;
+
+        let Some(data) = input.data.as_deref() else {
+            return Err("TXT record missing data field");
+        };
+
+        let value_template = ValueTemplate::from_str(data);
+        let data = value_template.render(query)?;
+        Ok(Self {
+            r#type: RecordType::TXT,
+            fqdn,
+            display: format!("{data:?}"),
+            data: RData::TXT(TXT::new(vec![data])),
+            ttl: input.ttl,
+        })
+    }
 }
 
 #[derive(Debug, Serialize)]
