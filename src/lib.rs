@@ -432,10 +432,35 @@ struct TemplateVersion {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Record {
-    r#type: String,
+    r#type: DcRecordType,
     host: String,
     points_to: Option<String>,
     ttl: u32,
+    data: Option<String>,
+    #[serde(default)]
+    txt_conflict_matching_mode: MatchingMode,
+    txt_conflict_matching_prefix: Option<String>,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+enum DcRecordType {
+    A,
+    Aaaa,
+    Cname,
+    Mx,
+    Txt,
+    Srv,
+    Spfm,
+}
+
+#[derive(Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "PascalCase")]
+enum MatchingMode {
+    #[default]
+    None,
+    All,
+    Prefix,
 }
 
 #[derive(Debug, Deserialize)]
