@@ -45,6 +45,9 @@
   <body>
     <div id="wrap">
       <h1>Confirm records for {{ properties.domain }}</h1>
+      {% if template.logoUrl %}
+        <img src="{{ template.logoUrl }}" id="logo" alt="Logo">
+      {% endif %}
       <p>
         <span class="provider">{{ properties.providerName|default(template.providerName, true) }}</span>
         wants to add the following records for its
