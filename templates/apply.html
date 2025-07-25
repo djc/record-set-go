@@ -85,6 +85,12 @@
           {% endfor %}
         </tbody>
       </table>
+      <p>
+        <form method="post" action="/apply">
+          <input type="hidden" name="records" value='{{ update|tojson }}'>
+          <button type="submit">Apply</button>
+        </form>
+      </p>
     </div>
   </body>
 </html>

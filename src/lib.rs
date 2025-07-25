@@ -84,10 +84,11 @@ async fn apply(
         query.insert("host".to_owned(), host.clone());
     }
 
-    let mut records = Vec::with_capacity(template.records.len());
+    let mut update = Update::default();
+    update.records.reserve(template.records.len());
     for record in &template.records {
         match record.update(&query) {
-            Ok(record) => records.push(record),
+            Ok(record) => update.records.push(record),
             Err(error) => {
                 return ApiResponse::BadRequest(ApiError {
                     message: error.to_owned(),
@@ -99,7 +100,8 @@ async fn apply(
     let preview = Preview {
         properties: &properties,
         template: &template,
-        records: &records,
+        records: &update.records,
+        update: &update,
     };
 
     let html = match app.html.get_template("apply.html") {
@@ -123,7 +125,13 @@ async fn apply(
 struct Preview<'a> {
     properties: &'a Properties,
     template: &'a Template,
+    update: &'a Update,
     records: &'a [RecordUpdate],
+}
+
+#[derive(Debug, Default, Serialize)]
+struct Update {
+    records: Vec<RecordUpdate>,
 }
 
 #[derive(Debug, Serialize)]
