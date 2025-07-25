@@ -1,5 +1,10 @@
 use std::{
-    collections::HashMap, io, net::Ipv4Addr, path::PathBuf, str::FromStr, sync::atomic::AtomicBool,
+    collections::HashMap,
+    io,
+    net::Ipv4Addr,
+    path::{Path, PathBuf},
+    str::FromStr,
+    sync::atomic::AtomicBool,
 };
 
 use anyhow::Context;
@@ -295,4 +300,10 @@ enum MatchingMode {
 pub(crate) struct TemplateConfig {
     cache: PathBuf,
     remote: String,
+}
+
+impl TemplateConfig {
+    pub(crate) fn update_paths(&mut self, base: &Path) {
+        self.cache = base.join(&self.cache);
+    }
 }

@@ -1,9 +1,9 @@
 [http]
 listen = "127.0.0.1:8000"
-html = "templates"
+html = "."
 
 [templates]
-cache = "demo/cache"
+cache = "cache"
 remote = "https://github.com/Domain-Connect/Templates"
 
 [dns]

@@ -18,8 +18,11 @@ async fn main() -> anyhow::Result<()> {
         options.config.display()
     ))?;
 
-    let config = toml::from_str::<Config>(&config).context("failed to parse config file")?;
+    let mut config = toml::from_str::<Config>(&config).context("failed to parse config file")?;
     debug!(?config, "parsed config");
+    if let Some(base) = options.config.parent() {
+        config.update_paths(base);
+    }
 
     let addr = config.http.listen;
     let app = App::new(config)

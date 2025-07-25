@@ -1,4 +1,11 @@
-use std::{collections::HashMap, fs, net::SocketAddr, path::PathBuf, str::FromStr, sync::Arc};
+use std::{
+    collections::HashMap,
+    fs,
+    net::SocketAddr,
+    path::{self, PathBuf},
+    str::FromStr,
+    sync::Arc,
+};
 
 use anyhow::Context;
 use axum::{
@@ -253,6 +260,11 @@ impl App {
                 continue;
             }
 
+            match path.extension().and_then(|ext| ext.to_str()) {
+                Some("html") | Some("j2") => {}
+                _ => continue,
+            }
+
             let contents = fs::read_to_string(&path).context(format!(
                 "failed to read HTML template file {}",
                 path.display()
@@ -349,10 +361,23 @@ pub struct Config {
     provider: ProviderConfig,
 }
 
+impl Config {
+    pub fn update_paths(&mut self, base: &path::Path) {
+        self.http.update_paths(base);
+        self.templates.update_paths(base);
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct HttpConfig {
     pub listen: SocketAddr,
     html: PathBuf,
+}
+
+impl HttpConfig {
+    fn update_paths(&mut self, base: &path::Path) {
+        self.html = base.join(&self.html);
+    }
 }
 
 #[derive(Debug, Deserialize)]
