@@ -1,0 +1,17 @@
+[http]
+listen = "127.0.0.1:8000"
+html = "templates"
+
+[templates]
+cache = "demo/cache"
+remote = "https://github.com/Domain-Connect/Templates"
+
+[dns]
+server = "localhost"
+
+[provider]
+id = "datum.cloud"
+name = "Datum Cloud"
+display-name = "Datum Cloud"
+sync-url = "http://localhost:8000"
+api-url = "http://localhost:8000"
