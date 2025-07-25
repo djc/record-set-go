@@ -23,7 +23,7 @@ use tracing::{debug, warn};
 mod templates;
 use templates::{RecordUpdate, Template, TemplateConfig, Templates};
 
-async fn apply(
+async fn preview(
     Path(service): Path<ServiceKey>,
     RawQuery(query): RawQuery,
     State(app): State<Arc<App>>,
@@ -286,7 +286,7 @@ impl App {
             )
             .route(
                 "/v2/domainTemplates/providers/{provider}/services/{service}/apply",
-                get(apply),
+                get(preview),
             )
             .with_state(Arc::new(self))
     }
