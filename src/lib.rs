@@ -97,13 +97,7 @@ async fn apply(
 
     let mut records = Vec::with_capacity(template.records.len());
     for record in &template.records {
-        let result = match record.r#type {
-            DcRecordType::A => RecordPreview::a(&record, &query),
-            DcRecordType::Txt => RecordPreview::txt(&record, &query),
-            _ => continue,
-        };
-
-        match result {
+        match record.update(&query) {
             Ok(record) => records.push(record),
             Err(error) => {
                 return ApiResponse::BadRequest(ApiError {
@@ -211,59 +205,6 @@ struct RecordPreview {
     data: RData,
     display: String,
     ttl: u32,
-}
-
-impl RecordPreview {
-    fn a(input: &Record, query: &HashMap<String, String>) -> Result<Self, &'static str> {
-        let host_template = ValueTemplate::from_str(&input.host);
-        let name = host_template.render(&query)?;
-        let fqdn = Name::from_str(&name).map_err(|error| {
-            warn!(%error, "failed to parse FQDN from host template");
-            "invalid record host"
-        })?;
-
-        let Some(points_to) = input.points_to.as_deref() else {
-            return Err("A record missing pointsTo field");
-        };
-
-        let value_template = ValueTemplate::from_str(&points_to);
-        let points_to = value_template.render(&query)?;
-        let addr = Ipv4Addr::from_str(&points_to).map_err(|error| {
-            warn!(%error, "failed to parse A record address");
-            "invalid A record address"
-        })?;
-
-        Ok(Self {
-            r#type: RecordType::A,
-            fqdn,
-            data: RData::A(addr.into()),
-            display: format!("{addr}"),
-            ttl: input.ttl,
-        })
-    }
-
-    fn txt(input: &Record, query: &HashMap<String, String>) -> Result<Self, &'static str> {
-        let host_template = ValueTemplate::from_str(&input.host);
-        let name = host_template.render(query)?;
-        let fqdn = Name::from_str(&name).map_err(|error| {
-            warn!(%error, "failed to parse FQDN from host template");
-            "invalid record host"
-        })?;
-
-        let Some(data) = input.data.as_deref() else {
-            return Err("TXT record missing data field");
-        };
-
-        let value_template = ValueTemplate::from_str(data);
-        let data = value_template.render(query)?;
-        Ok(Self {
-            r#type: RecordType::TXT,
-            fqdn,
-            display: format!("{data:?}"),
-            data: RData::TXT(TXT::new(vec![data])),
-            ttl: input.ttl,
-        })
-    }
 }
 
 #[derive(Debug, Serialize)]
@@ -593,6 +534,67 @@ struct Record {
     #[serde(default)]
     txt_conflict_matching_mode: MatchingMode,
     txt_conflict_matching_prefix: Option<String>,
+}
+
+impl Record {
+    fn update(&self, query: &HashMap<String, String>) -> Result<RecordPreview, &'static str> {
+        match self.r#type {
+            DcRecordType::A => self.a(query),
+            DcRecordType::Txt => self.txt(query),
+            _ => Err("unsupported record type"),
+        }
+    }
+
+    fn a(&self, query: &HashMap<String, String>) -> Result<RecordPreview, &'static str> {
+        let host_template = ValueTemplate::from_str(&self.host);
+        let name = host_template.render(&query)?;
+        let fqdn = Name::from_str(&name).map_err(|error| {
+            warn!(%error, "failed to parse FQDN from host template");
+            "invalid record host"
+        })?;
+
+        let Some(points_to) = self.points_to.as_deref() else {
+            return Err("A record missing pointsTo field");
+        };
+
+        let value_template = ValueTemplate::from_str(&points_to);
+        let points_to = value_template.render(&query)?;
+        let addr = Ipv4Addr::from_str(&points_to).map_err(|error| {
+            warn!(%error, "failed to parse A record address");
+            "invalid A record address"
+        })?;
+
+        Ok(RecordPreview {
+            r#type: RecordType::A,
+            fqdn,
+            data: RData::A(addr.into()),
+            display: format!("{addr}"),
+            ttl: self.ttl,
+        })
+    }
+
+    fn txt(&self, query: &HashMap<String, String>) -> Result<RecordPreview, &'static str> {
+        let host_template = ValueTemplate::from_str(&self.host);
+        let name = host_template.render(query)?;
+        let fqdn = Name::from_str(&name).map_err(|error| {
+            warn!(%error, "failed to parse FQDN from host template");
+            "invalid record host"
+        })?;
+
+        let Some(data) = self.data.as_deref() else {
+            return Err("TXT record missing data field");
+        };
+
+        let value_template = ValueTemplate::from_str(data);
+        let data = value_template.render(query)?;
+        Ok(RecordPreview {
+            r#type: RecordType::TXT,
+            fqdn,
+            display: format!("{data:?}"),
+            data: RData::TXT(TXT::new(vec![data])),
+            ttl: self.ttl,
+        })
+    }
 }
 
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
