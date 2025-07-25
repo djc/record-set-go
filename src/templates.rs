@@ -140,7 +140,7 @@ impl Record {
     pub(crate) fn update(
         &self,
         query: &HashMap<String, String>,
-    ) -> Result<RecordPreview, &'static str> {
+    ) -> Result<RecordUpdate, &'static str> {
         match self.r#type {
             DcRecordType::A => self.a(query),
             DcRecordType::Txt => self.txt(query),
@@ -148,7 +148,7 @@ impl Record {
         }
     }
 
-    fn a(&self, query: &HashMap<String, String>) -> Result<RecordPreview, &'static str> {
+    fn a(&self, query: &HashMap<String, String>) -> Result<RecordUpdate, &'static str> {
         let host_template = ValueTemplate::from_str(&self.host);
         let name = host_template.render(&query)?;
         let fqdn = Name::from_str(&name).map_err(|error| {
@@ -167,7 +167,7 @@ impl Record {
             "invalid A record address"
         })?;
 
-        Ok(RecordPreview {
+        Ok(RecordUpdate {
             r#type: RecordType::A,
             fqdn,
             data: RData::A(addr.into()),
@@ -176,7 +176,7 @@ impl Record {
         })
     }
 
-    fn txt(&self, query: &HashMap<String, String>) -> Result<RecordPreview, &'static str> {
+    fn txt(&self, query: &HashMap<String, String>) -> Result<RecordUpdate, &'static str> {
         let host_template = ValueTemplate::from_str(&self.host);
         let name = host_template.render(query)?;
         let fqdn = Name::from_str(&name).map_err(|error| {
@@ -190,7 +190,7 @@ impl Record {
 
         let value_template = ValueTemplate::from_str(data);
         let data = value_template.render(query)?;
-        Ok(RecordPreview {
+        Ok(RecordUpdate {
             r#type: RecordType::TXT,
             fqdn,
             display: format!("{data:?}"),
@@ -201,7 +201,7 @@ impl Record {
 }
 
 #[derive(Debug, Serialize)]
-pub(crate) struct RecordPreview {
+pub(crate) struct RecordUpdate {
     r#type: RecordType,
     fqdn: Name,
     data: RData,

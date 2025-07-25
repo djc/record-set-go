@@ -21,7 +21,7 @@ use tokio::net::lookup_host;
 use tracing::{debug, warn};
 
 mod templates;
-use templates::{RecordPreview, Template, TemplateConfig, Templates};
+use templates::{RecordUpdate, Template, TemplateConfig, Templates};
 
 async fn apply(
     Path(service): Path<ServiceKey>,
@@ -123,7 +123,7 @@ async fn apply(
 struct Preview<'a> {
     properties: &'a Properties,
     template: &'a Template,
-    records: &'a [RecordPreview],
+    records: &'a [RecordUpdate],
 }
 
 #[derive(Debug, Serialize)]
