@@ -18,7 +18,7 @@ use axum::{
 use hickory_client::{
     client::{Client, ClientHandle},
     proto::{
-        rr::{DNSClass, Name, RecordType},
+        rr::{DNSClass, Name, Record, RecordType},
         runtime::TokioRuntimeProvider,
         tcp::TcpClientStream,
     },
@@ -104,6 +104,39 @@ async fn preview(
         }
     }
 
+    let mut client = match app.dns.connect().await {
+        Ok(client) => client,
+        Err(error) => {
+            warn!(%error, "failed to connect to DNS server");
+            return ApiResponse::Internal;
+        }
+    };
+
+    let (current, records) = (&mut update.current, &update.records);
+    for update in records {
+        let ty = update.r#type;
+        let mut message = match client.query(update.name.clone(), DNSClass::IN, ty).await {
+            Ok(message) => message,
+            Err(error) => {
+                warn!(%error, "failed to query DNS for current records");
+                return ApiResponse::Internal;
+            }
+        };
+
+        for answer in message.take_answers() {
+            if answer.record_type() != ty {
+                continue;
+            } else if answer.name() != &update.name {
+                continue;
+            }
+
+            current
+                .entry((update.name.clone(), ty))
+                .or_default()
+                .push(answer);
+        }
+    }
+
     let preview = Preview {
         properties: &properties,
         template: &template,
@@ -138,6 +171,7 @@ struct Preview<'a> {
 
 #[derive(Debug, Default, Serialize)]
 struct Update {
+    current: HashMap<(Name, RecordType), Vec<Record>>,
     records: Vec<RecordUpdate>,
 }
 

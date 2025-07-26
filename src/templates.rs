@@ -207,8 +207,8 @@ impl Record {
 
 #[derive(Debug, Serialize)]
 pub(crate) struct RecordUpdate {
-    r#type: RecordType,
-    name: Name,
+    pub(crate) r#type: RecordType,
+    pub(crate) name: Name,
     data: RData,
     display: String,
     ttl: u32,
