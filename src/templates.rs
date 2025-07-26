@@ -156,7 +156,7 @@ impl Record {
     fn a(&self, query: &HashMap<String, String>) -> Result<RecordUpdate, &'static str> {
         let host_template = ValueTemplate::from_str(&self.host);
         let name = host_template.render(&query)?;
-        let fqdn = Name::from_str(&name).map_err(|error| {
+        let name = Name::from_str(&name).map_err(|error| {
             warn!(%error, "failed to parse FQDN from host template");
             "invalid record host"
         })?;
@@ -174,7 +174,7 @@ impl Record {
 
         Ok(RecordUpdate {
             r#type: RecordType::A,
-            fqdn,
+            name,
             data: RData::A(addr.into()),
             display: format!("{addr}"),
             ttl: self.ttl,
@@ -184,7 +184,7 @@ impl Record {
     fn txt(&self, query: &HashMap<String, String>) -> Result<RecordUpdate, &'static str> {
         let host_template = ValueTemplate::from_str(&self.host);
         let name = host_template.render(query)?;
-        let fqdn = Name::from_str(&name).map_err(|error| {
+        let name = Name::from_str(&name).map_err(|error| {
             warn!(%error, "failed to parse FQDN from host template");
             "invalid record host"
         })?;
@@ -197,7 +197,7 @@ impl Record {
         let data = value_template.render(query)?;
         Ok(RecordUpdate {
             r#type: RecordType::TXT,
-            fqdn,
+            name,
             display: format!("{data:?}"),
             data: RData::TXT(TXT::new(vec![data])),
             ttl: self.ttl,
@@ -208,7 +208,7 @@ impl Record {
 #[derive(Debug, Serialize)]
 pub(crate) struct RecordUpdate {
     r#type: RecordType,
-    fqdn: Name,
+    name: Name,
     data: RData,
     display: String,
     ttl: u32,
