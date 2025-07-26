@@ -1,4 +1,4 @@
-# Record-Set-Go: a Rust-based Domain Connect DNS provider implementation
+# Record-Set-Go: a Domain Connect DNS provider implementation in Rust
 
 ## Features
 
