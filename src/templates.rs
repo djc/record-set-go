@@ -205,13 +205,13 @@ impl Record {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct RecordUpdate {
     pub(crate) r#type: RecordType,
     pub(crate) name: Name,
-    data: RData,
+    pub(crate) data: RData,
     display: String,
-    ttl: u32,
+    pub(crate) ttl: u32,
 }
 
 struct ValueTemplate<'a>(Vec<Node<'a>>);

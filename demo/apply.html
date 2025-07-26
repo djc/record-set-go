@@ -86,10 +86,33 @@
         </tbody>
       </table>
       <p>
-        <form method="post" action="/apply">
-          <input type="hidden" name="records" value='{{ update|tojson }}'>
-          <button type="submit">Apply</button>
-        </form>
+        <script>
+          const UPDATE = {{ update|tojson }};
+
+          async function apply() {
+            document.querySelector('button').disabled = true;
+            document.querySelector('button').textContent = 'Applying...';
+
+            try {
+              const rsp = await fetch('/apply', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(UPDATE),
+              });
+
+              if (!rsp.ok) {
+                throw new Error(`Response status: ${response.status}`);
+              }
+            } catch (error) {
+              console.error('Error applying records:', error.message);
+            }
+
+            document.querySelector('button').textContent = 'Applied!';
+          }
+        </script>
+        <button type="submit" onclick="apply()">Apply</button>
       </p>
     </div>
   </body>

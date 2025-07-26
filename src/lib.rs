@@ -13,12 +13,13 @@ use axum::{
     extract::{Json, Path, Query, RawQuery, State},
     http::{StatusCode, Uri},
     response::{Html, IntoResponse},
-    routing::get,
+    routing::{get, post},
 };
 use hickory_client::{
     client::{Client, ClientHandle},
     proto::{
-        rr::{DNSClass, Name, Record, RecordType},
+        op::ResponseCode,
+        rr::{DNSClass, Name, RData, Record, RecordSet, RecordType},
         runtime::TokioRuntimeProvider,
         tcp::TcpClientStream,
     },
@@ -161,6 +162,47 @@ async fn preview(
     }
 }
 
+async fn apply(State(app): State<Arc<App>>, Json(update): Json<Update>) -> ApiResponse<()> {
+    let mut new = HashMap::<(Name, RecordType), Vec<(RData, u32)>>::default();
+    for update in update.records {
+        new.entry((update.name, update.r#type))
+            .or_default()
+            .push((update.data, update.ttl));
+    }
+
+    let mut client = match app.dns.connect().await {
+        Ok(client) => client,
+        Err(error) => {
+            warn!(%error, "failed to connect to DNS server");
+            return ApiResponse::Internal;
+        }
+    };
+
+    for ((name, ty), records) in new {
+        let mut set = RecordSet::new(name.clone(), ty, 0);
+        for (data, ttl) in records {
+            set.add_rdata(data);
+            set.set_ttl(ttl);
+        }
+
+        match client.append(set, name.clone(), false).await {
+            Ok(response) if response.response_code() == ResponseCode::NoError => {
+                debug!(?response, %name, %ty, "appended records")
+            }
+            Ok(response) => {
+                warn!(?response, %name, %ty, "failed to append record");
+                return ApiResponse::Internal;
+            }
+            Err(error) => {
+                warn!(%error, %name, %ty, "failed to append record");
+                return ApiResponse::Internal;
+            }
+        }
+    }
+
+    ApiResponse::Json(())
+}
+
 #[derive(Serialize)]
 struct Preview<'a> {
     properties: &'a Properties,
@@ -169,7 +211,7 @@ struct Preview<'a> {
     records: &'a [RecordUpdate],
 }
 
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 struct Update {
     current: HashMap<(Name, RecordType), Vec<Record>>,
     records: Vec<RecordUpdate>,
@@ -334,6 +376,7 @@ impl App {
                 "/v2/domainTemplates/providers/{provider}/services/{service}/apply",
                 get(preview),
             )
+            .route("/apply", post(apply))
             .with_state(Arc::new(self))
     }
 }

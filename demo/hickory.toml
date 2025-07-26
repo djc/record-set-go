@@ -1,7 +1,7 @@
 [[zones]]
 zone = "example.com"
 zone_type = "Primary"
-axfr_policy = "AllowSigned"
+axfr_policy = "AllowAll"
 
 [zones.stores]
 type = "sqlite"
