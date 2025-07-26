@@ -155,7 +155,7 @@ impl Record {
 
     fn a(&self, query: &HashMap<String, String>) -> Result<RecordUpdate, &'static str> {
         let host_template = ValueTemplate::from_str(&self.host);
-        let name = host_template.render(&query)?;
+        let name = host_template.render(query)?;
         let name = Name::from_str(&name).map_err(|error| {
             warn!(%error, "failed to parse FQDN from host template");
             "invalid record host"
@@ -165,8 +165,8 @@ impl Record {
             return Err("A record missing pointsTo field");
         };
 
-        let value_template = ValueTemplate::from_str(&points_to);
-        let points_to = value_template.render(&query)?;
+        let value_template = ValueTemplate::from_str(points_to);
+        let points_to = value_template.render(query)?;
         let addr = Ipv4Addr::from_str(&points_to).map_err(|error| {
             warn!(%error, "failed to parse A record address");
             "invalid A record address"
