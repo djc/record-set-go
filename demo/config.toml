@@ -1,19 +1,32 @@
 [http]
+# Interface for the HTTP server to listen on
 listen = "127.0.0.1:8000"
+# Directory to serve static files from (relative to this config file)
 html = "."
 
 [templates]
+# Cached git repository containing the Domain Connect templates
+# These are cloned and updated by the server on startup
 cache = "cache"
+# Remote repository URL for the Domain Connect templates
 remote = "https://github.com/Domain-Connect/Templates"
 
 [dns]
+# The address of the DNS server to connect to (IP or host name)
 server = "localhost"
+# The key name for the TSIG key used to sign updates
 key-name = "example.com."
+# A path to the TSIG key file (relative to this config file)
 key-file = "example.com.key"
 
 [provider]
+# The provider ID for the DNS provider (should be a domain name)
 id = "datum.cloud"
+# Name for the DNS provider
 name = "Datum Cloud"
+# Display name for the DNS provider
 display-name = "Datum Cloud"
+# URL base for the DNS provider's sync flow
 sync-url = "http://localhost:8000"
+# URL base for the DNS provider's API endpoint
 api-url = "http://localhost:8000"
