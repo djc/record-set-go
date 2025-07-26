@@ -9,12 +9,7 @@ zone_path = "example.com.zone"
 journal_path = "example.com.journal"
 allow_update = true
 
-[[zones.keys]]
-key_path = "rsa-key.pk8"
-algorithm = "RSASHA256"
-purpose = "ZoneSigning"
-
-[[zones.keys]]
-key_path = "rsa-key.pk8"
-algorithm = "RSASHA512"
-purpose = "ZoneUpdateAuth"
+[[zones.stores.tsig_keys]]
+name = "example.com."
+key_file = "example.com.key"
+algorithm = "hmac-sha256"

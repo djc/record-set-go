@@ -8,6 +8,8 @@ remote = "https://github.com/Domain-Connect/Templates"
 
 [dns]
 server = "localhost"
+key-name = "example.com."
+key-file = "example.com.key"
 
 [provider]
 id = "datum.cloud"

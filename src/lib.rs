@@ -18,7 +18,8 @@ use axum::{
 use hickory_client::{
     client::{Client, ClientHandle},
     proto::{
-        op::ResponseCode,
+        dnssec::{rdata::tsig::TsigAlgorithm, tsig::TSigner},
+        op::{MessageSigner, ResponseCode},
         rr::{DNSClass, Name, RData, Record, RecordSet, RecordType},
         runtime::TokioRuntimeProvider,
         tcp::TcpClientStream,
@@ -383,10 +384,24 @@ impl App {
 
 struct DnsServer {
     addr: SocketAddr,
+    signer: Arc<dyn MessageSigner>,
 }
 
 impl DnsServer {
     async fn new(config: DnsConfig) -> anyhow::Result<Self> {
+        let key = fs::read(&config.key_file).context(format!(
+            "failed to read TSIG key file {}",
+            config.key_file.display()
+        ))?;
+
+        let signer = TSigner::new(
+            key,
+            TsigAlgorithm::HmacSha256,
+            Name::from_str(&config.key_name).context("failed to parse TSIG key name")?,
+            300,
+        )
+        .context("failed to create TSIG signer")?;
+
         Ok(Self {
             addr: lookup_host((config.server.as_str(), 53))
                 .await
@@ -396,13 +411,14 @@ impl DnsServer {
                     "no address found for DNS server {:?}",
                     &config.server
                 )))?,
+            signer: Arc::new(signer),
         })
     }
 
     pub async fn connect(&self) -> anyhow::Result<Client> {
         let (stream, sender) =
             TcpClientStream::new(self.addr, None, None, TokioRuntimeProvider::new());
-        let client = Client::new(stream, sender, None);
+        let client = Client::new(stream, sender, Some(self.signer.clone()));
         let (client, bg) = client
             .await
             .context("failed to establish DNS client connection")?;
@@ -441,6 +457,7 @@ pub struct Config {
 impl Config {
     pub fn update_paths(&mut self, base: &path::Path) {
         self.http.update_paths(base);
+        self.dns.update_paths(base);
         self.templates.update_paths(base);
     }
 }
@@ -458,8 +475,17 @@ impl HttpConfig {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 struct DnsConfig {
     server: String,
+    key_name: String,
+    key_file: PathBuf,
+}
+
+impl DnsConfig {
+    fn update_paths(&mut self, base: &path::Path) {
+        self.key_file = base.join(&self.key_file);
+    }
 }
 
 #[derive(Debug, Deserialize)]
