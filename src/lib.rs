@@ -126,9 +126,7 @@ async fn preview(
         };
 
         for answer in message.take_answers() {
-            if answer.record_type() != ty {
-                continue;
-            } else if answer.name() != &update.name {
+            if answer.record_type() != ty || answer.name() != &update.name {
                 continue;
             }
 
