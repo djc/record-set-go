@@ -15,7 +15,9 @@
 
 ## Getting started
 
-1. Install a stable Rust toolchain and clone the repository
+1. Install a stable Rust toolchain and clone the repository. Make sure a recent
+   version of the hickory-dns server is installed, like with
+   `cargo install --git https://github.com/hickory-dns/hickory-dns hickory-dns`.
 2. `cd demo` and execute `./run.sh` to start the DNS server (listening on port 53)
 3. Use `dig example.com @localhost` to verify the DNS server is running
    but no A records for the apex domain exist yet.
