@@ -10,7 +10,7 @@ axum = { version = "0.8", features = ["macros"] }
 clap = { version = "4.5.41", features = ["derive"] }
 gix = { version = "0.73", default-features = false, features = ["blocking-network-client", "blocking-http-transport-reqwest-rust-tls", "parallel"] }
 hickory-client = { version = "=0.26.0-alpha.1", features = ["dnssec-ring", "serde"] }
-minijinja = { version = "2.11", features = ["json", "loader"] }
+minijinja = { version = "2.12", features = ["json", "loader"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1.46.1", features = ["macros", "rt-multi-thread"] }
