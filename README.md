@@ -30,3 +30,8 @@
 6. Click the `Apply` button to apply the template.
 7. Use `dig example.com @localhost` to verify the A record has been created.
 8. Use `dig example.com TXT @localhost` to verify the TXT record has been created.
+
+## License
+
+For now, this project is unlicensed -- copyright by Dirkjan Ochtman, 2025.
+Contact me if you're interested in using it and want to fund development.
